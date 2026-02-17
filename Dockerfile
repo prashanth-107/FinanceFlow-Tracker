@@ -1,14 +1,12 @@
-# Step 1: Use a reliable JDK image
-FROM eclipse-temurin:17-jdk-alpine
-
-# Step 2: Set the working directory
+# Stage 1: Build the application
+FROM maven:3.8.4-openjdk-17 AS build
 WORKDIR /app
+COPY . .
+RUN mvn clean package -DskipTests
 
-# Step 3: Copy the jar file (Maven builds into the target folder)
-COPY target/*.jar app.jar
-
-# Step 4: Expose the port
+# Stage 2: Run the application
+FROM eclipse-temurin:17-jdk-alpine
+WORKDIR /app
+COPY --from=build /app/target/*.jar app.jar
 EXPOSE 8080
-
-# Step 5: Run the application
 ENTRYPOINT ["java", "-jar", "app.jar"]
