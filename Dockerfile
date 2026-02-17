@@ -1,10 +1,14 @@
-# Step 1: Use Maven to build the application
-FROM maven:3.8.5-openjdk-17 AS build
-COPY . .
-RUN mvn clean package -DskipTests
+# Step 1: Use a reliable JDK image
+FROM eclipse-temurin:17-jdk-alpine
 
-# Step 2: Use OpenJDK to run the application
-FROM openjdk:17-jdk-slim
-COPY --from=build /target/*.jar demo.jar
+# Step 2: Set the working directory
+WORKDIR /app
+
+# Step 3: Copy the jar file (Maven builds into the target folder)
+COPY target/*.jar app.jar
+
+# Step 4: Expose the port
 EXPOSE 8080
-ENTRYPOINT ["java", "-jar", "demo.jar"]
+
+# Step 5: Run the application
+ENTRYPOINT ["java", "-jar", "app.jar"]
