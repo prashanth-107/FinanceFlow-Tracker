@@ -10,14 +10,59 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
     <style>
-        :root { --bg: #0f172a; --card: #1e293b; --accent: #38bdf8; }
-        body { background: var(--bg); color: #f8fafc; font-family: 'Inter', sans-serif; min-height: 100vh; }
-        .card-custom { background: var(--card); border-radius: 15px; padding: 25px; border: 1px solid #334155; height: 100%; }
+        :root {
+            --bg: #0b0e14;
+            --card: #161b22;
+            --accent: #38bdf8;
+            --success: #22c55e;
+            --danger: #ef4444;
+            --border: #30363d;
+        }
+
+        body {
+            background: var(--bg);
+            color: #f8fafc;
+            font-family: 'Inter', sans-serif;
+            min-height: 100vh;
+        }
+
+        .card-custom {
+            background: rgba(22, 27, 34, 0.8);
+            backdrop-filter: blur(8px);
+            border-radius: 15px;
+            padding: 25px;
+            border: 1px solid var(--border);
+            height: 100%;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .card-custom:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+        }
+
         .btn-delete { color: #fb7185; cursor: pointer; font-weight: bold; font-size: 1.2rem; transition: 0.2s; }
         .btn-delete:hover { color: #f43f5e; transform: scale(1.2); }
-        .balance-box { background: rgba(56, 189, 248, 0.1); border: 1px solid var(--accent); border-radius: 15px; padding: 20px; text-align: center; }
-        .table { color: #cbd5e1; border-color: #334155; }
-        .form-control { background-color: #0f172a !important; color: white !important; border-color: #475569 !important; }
+
+        .balance-box {
+            background: rgba(56, 189, 248, 0.05);
+            border: 1px solid var(--border);
+            border-radius: 15px;
+            padding: 20px;
+            text-align: center;
+            transition: all 0.5s ease;
+        }
+
+        .table { color: #cbd5e1; border-color: var(--border); }
+        .form-control { background-color: #0b0e14 !important; color: white !important; border-color: var(--border) !important; }
+
+        .btn-primary { background: linear-gradient(135deg, #38bdf8, #0284c7); border: none; }
+        .btn-success { background: linear-gradient(135deg, #22c55e, #16a34a); border: none; }
+        .btn-danger { background: linear-gradient(135deg, #ef4444, #dc2626); border: none; }
+
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: var(--bg); }
+        ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 10px; }
     </style>
 </head>
 <body class="container py-5">
@@ -35,7 +80,7 @@
 
 <div class="row mb-5 justify-content-center">
     <div class="col-md-4">
-        <div class="balance-box">
+        <div id="balanceContainer" class="balance-box">
             <small class="text-uppercase fw-bold text-muted">Net Balance</small>
             <h2 id="netBalance" class="display-6 fw-bold text-info">0</h2>
         </div>
@@ -71,46 +116,77 @@
 <div class="row mt-5">
     <div class="col-12">
         <div class="card-custom">
-            <h4 class="mb-4">Visual Analytics</h4>
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h4 class="m-0">Visual Analytics</h4>
+                <small id="lastUpdated" class="text-muted" style="font-size: 0.75rem;"></small>
+            </div>
             <div style="height: 300px;"><canvas id="financeChart"></canvas></div>
         </div>
     </div>
 </div>
 
 <script>
-    const API_EXP = "https://financeflow-tracker.onrender.com/api/expenses";
-    const API_INC = "https://financeflow-tracker.onrender.com/api/income";
-    let myChart;
+    // --- SMART URL LOGIC ---
+    // If running on local machine, use localhost:8080. If on web, use Render URL.
+    const BASE_URL = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+        ? "http://localhost:8081"
+        : "https://financeflow-tracker.onrender.com";
 
-    // Formats numbers for India system, NO dollar symbol
+    const API_EXP = `${BASE_URL}/api/expenses`;
+    const API_INC = `${BASE_URL}/api/income`;
+    // -----------------------
+
+    let myChart;
     const fmt = (num) => new Intl.NumberFormat('en-IN').format(num);
 
     async function fetchData() {
-        const [resExp, resInc] = await Promise.all([fetch(API_EXP), fetch(API_INC)]);
-        const expenses = await resExp.json();
-        const incomes = await resInc.json();
-        let tIn = 0, tOut = 0;
+        try {
+            const [resExp, resInc] = await Promise.all([fetch(API_EXP), fetch(API_INC)]);
+            const expenses = await resExp.json();
+            const incomes = await resInc.json();
+            let tIn = 0, tOut = 0;
 
-        const render = (data, elementId, colorClass, prefix, type) => {
-            const el = document.getElementById(elementId);
-            el.innerHTML = "";
-            data.forEach(item => {
-                const amt = parseFloat(item.amount);
-                if(type === 'expense') tOut += amt; else tIn += amt;
-                el.innerHTML += `<tr>
-                    <td>${item.source || item.description}</td>
-                    <td class="text-end fw-bold ${colorClass}">${prefix}${fmt(amt)}</td>
-                    <td class="text-end" style="width: 50px;">
-                        <span class="btn-delete" onclick="deleteRecord(${item.id}, '${type}')">✕</span>
-                    </td>
-                </tr>`;
-            });
-        };
+            const render = (data, elementId, colorClass, prefix, type) => {
+                const el = document.getElementById(elementId);
+                el.innerHTML = "";
+                data.forEach(item => {
+                    const amt = parseFloat(item.amount);
+                    if(type === 'expense') tOut += amt; else tIn += amt;
+                    el.innerHTML += `<tr>
+                        <td>${item.source || item.description}</td>
+                        <td class="text-end fw-bold ${colorClass}">${prefix}${fmt(amt)}</td>
+                        <td class="text-end" style="width: 50px;">
+                            <span class="btn-delete" onclick="deleteRecord(${item.id}, '${type}')">✕</span>
+                        </td>
+                    </tr>`;
+                });
+            };
 
-        render(expenses, "expenseTable", "text-danger", "-", "expense");
-        render(incomes, "incomeTable", "text-success", "+", "income");
-        document.getElementById("netBalance").innerText = fmt(tIn - tOut);
-        updateChart(tIn, tOut);
+            render(expenses, "expenseTable", "text-danger", "-", "expense");
+            render(incomes, "incomeTable", "text-success", "+", "income");
+
+            const netValue = tIn - tOut;
+            const balanceEl = document.getElementById("netBalance");
+            const balanceBox = document.getElementById("balanceContainer");
+            balanceEl.innerText = fmt(netValue);
+
+            if (netValue > 0) {
+                balanceEl.className = "display-6 fw-bold text-success";
+                balanceBox.style.borderColor = "var(--success)";
+            } else if (netValue < 0) {
+                balanceEl.className = "display-6 fw-bold text-danger";
+                balanceBox.style.borderColor = "var(--danger)";
+            } else {
+                balanceEl.className = "display-6 fw-bold text-info";
+                balanceBox.style.borderColor = "var(--border)";
+            }
+
+            document.getElementById("lastUpdated").innerText = "Last synced: " + new Date().toLocaleTimeString();
+            updateChart(tIn, tOut);
+        } catch (error) {
+            console.error("Error fetching data:", error);
+            document.getElementById("lastUpdated").innerText = "Error: Check if backend is running!";
+        }
     }
 
     function updateChart(inc, exp) {
@@ -120,9 +196,20 @@
             type: 'doughnut',
             data: {
                 labels: ['Income', 'Expenses'],
-                datasets: [{ data: [inc, exp], backgroundColor: ['#4ade80', '#fb7185'], borderWidth: 0 }]
+                datasets: [{
+                    data: [inc, exp],
+                    backgroundColor: ['#22c55e', '#ef4444'],
+                    hoverOffset: 15,
+                    borderWidth: 0
+                }]
             },
-            options: { responsive: true, maintainAspectRatio: false }
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { labels: { color: '#cbd5e1', font: { family: 'Inter' } } }
+                }
+            }
         });
     }
 
@@ -161,12 +248,24 @@
     async function generatePDF() {
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF();
+        doc.setFontSize(20);
         doc.text("FinanceFlow Report", 14, 20);
+        doc.setFontSize(10);
+        doc.text("Generated on: " + new Date().toLocaleString(), 14, 28);
+
         const [re, ri] = await Promise.all([fetch(API_EXP), fetch(API_INC)]);
         const ex = await re.json(), in_ = await ri.json(), rows = [];
+
         in_.forEach(i => rows.push([i.date, i.source, "Income", `+${fmt(i.amount)}`]));
         ex.forEach(e => rows.push([e.date, e.description, "Expense", `-${fmt(e.amount)}`]));
-        doc.autoTable({ startY: 30, head: [['Date', 'Description', 'Type', 'Amount']], body: rows });
+
+        doc.autoTable({
+            startY: 35,
+            head: [['Date', 'Description', 'Type', 'Amount']],
+            body: rows,
+            theme: 'striped',
+            headStyles: { fillColor: [56, 189, 248] }
+        });
         doc.save("Finance_Report.pdf");
     }
 
